@@ -22,6 +22,8 @@ const port = process.env.PORT || 5004
 
 app.get("/health", (req, res) => res.status(200).send("ok"))
 
+app.get("/", (req, res) => res.status(200).send("ok"))
+
 app.use("/", roadmapRouter)
 
 
