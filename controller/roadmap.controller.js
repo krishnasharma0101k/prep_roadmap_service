@@ -1,140 +1,138 @@
-import redis from "../config/redis.js"
-import graph from "../graph/roadmap.graph.js"
-import Roadmap from "../models/roadmap.Model.js"
-
+import redis from "../config/redis.js";
+import graph from "../graph/roadmap.graph.js";
+import Roadmap from "../models/roadmap.Model.js";
 
 export const generateRoadmap = async (req, res) => {
-    try {
-     const {
-        role,
-        targatePackage,
-        useResume = false,
-        resume,} = req.body
+  try {
+    const { role, targetPackage, useResume = false, resume } = req.body;
 
-        const userId = req.headers["x-user-id"]
+    const userId = req.headers["x-user-id"];
 
-        if (!role || !targatePackage) {
-            return res.status(400)
-            .json({
-                success: false,
-                message: "Role and Target Package are required"
-            })
-        }
-
-        if (useResume || !resume) {
-              return res.status(400)
-            .json({
-                success: false,
-                message: "Resume data is required"
-            })
-        }
-
-        const result = await graph.invoke({
-            role,
-            targetPackage,
-            useResume,
-            resume
-        })
-
-        const roadmap = await Roadmap.create({
-            userId,
-            ...result.roadmap
-        })
-
-        await redis.set(`Roadmap: ${roadmap._id}`, JSON.stringify(roadmap), "EX", 60*60)
-
-        await redis.del(`userRoadmap: ${userId}`)
-
-        return res.status(201).json({
-            success: true,
-            message: "Roadmap generated successfully",
-            data: roadmap
-        })
-
-    } catch (error) {
-        console.log(error);
-
-        return res.status(500).json({
-            success: false,
-            message: error.message
-        })
-        
+    if (!role || !targetPackage) {
+      return res.status(400).json({
+        success: false,
+        message: "Role and Target Package are required",
+      });
     }
-}
+
+    if (useResume && !resume) {
+      return res.status(400).json({
+        success: false,
+        message: "Resume data is required",
+      });
+    }
+
+    const result = await graph.invoke({
+      role,
+      targetPackage,
+      useResume,
+      resume,
+    });
+
+    const roadmap = await Roadmap.create({
+      userId,
+      ...result.roadmap,
+    });
+
+    await redis.set(
+      `roadmap:${userId}:${roadmap._id}`,
+      JSON.stringify(roadmap),
+      "EX",
+      60 * 60,
+    );
+
+    await redis.del(`userRoadmaps:${userId}`);
+
+    return res.status(201).json({
+      success: true,
+      message: "Roadmap generated successfully",
+      data: roadmap,
+    });
+  } catch (error) {
+    console.log(error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
 
 export const getAllRoadmap = async (req, res) => {
-    try {
-        const userId = req.headers["x-user-id"]
-        const cache = await redis.get(`userRoadmaps: ${userId}`)
+  try {
+    const userId = req.headers["x-user-id"];
+    const cache = await redis.get(`userRoadmaps:${userId}`);
 
-        if (cache) {
-            return res.status(200).json({
-                success: true,
-                data: JSON.parse(cache)
-            })
-        }
-
-        const roadmaps = await Roadmap.find({userId}).sort({createdAt: -1})
-        
-        await redis.set(`userRoadmaps: ${userId}`, JSON.stringify(roadmaps), "EX", 60*60)
-
-        return res.json({
-            success: true,
-            data: roadmaps
-        })
-
-    } catch (error) {
-        console.log(error);
-        return res.status(500).json({
-            success: false,
-            message: error.message
-        })
-        
+    if (cache) {
+      return res.status(200).json({
+        success: true,
+        data: JSON.parse(cache),
+      });
     }
-}  
+
+    const roadmaps = await Roadmap.find({ userId }).sort({ createdAt: -1 });
+
+    await redis.set(
+      `userRoadmaps:${userId}`,
+      JSON.stringify(roadmaps),
+      "EX",
+      60 * 60,
+    );
+
+    return res.json({
+      success: true,
+      data: roadmaps,
+    });
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
 
 export const getRoadmapId = async (req, res) => {
-    try {
-        const {id} = req.params
-        const userId = req.headers["x-user-id"]
+  try {
+    const { id } = req.params;
+    const userId = req.headers["x-user-id"];
 
-        const cache = await redis.get(`roadmap: ${id}`)
+    const cacheKey = `roadmap:${userId}:${id}`;
+    const cache = await redis.get(cacheKey);
 
-        if (cache) {
-            return res.json({
-                success: true,
-                fromCache: true,
-                data: JSON.parse(cache)
-            })
-        }
-
-        const roadmap = await Roadmap.findOne({
-            _id: id,
-            userId: userId
-        })
-
-        if (!roadmap) {
-            return res.status(500).json({
-                success: false,
-                message: "Roadmap not found"
-            })
-        }
-
-        await redis.set(`Roadmap: ${id}`, JSON.stringify(roadmap), "EX", 60*60)
-
-        return res.json({
-            success: true,
-            fromCache: false,
-            data: roadmap
-        })
-
-    } catch (error) {
-        console.log(error);
-
-        return res.status(500).json({
-            success: false,
-            message: error.message
-        })
-        
+    if (cache) {
+      return res.json({
+        success: true,
+        fromCache: true,
+        data: JSON.parse(cache),
+      });
     }
-}
+
+    const roadmap = await Roadmap.findOne({
+      _id: id,
+      userId: userId,
+    });
+
+    if (!roadmap) {
+      return res.status(404).json({
+        success: false,
+        message: "Roadmap not found",
+      });
+    }
+
+    await redis.set(cacheKey, JSON.stringify(roadmap), "EX", 60 * 60);
+
+    return res.json({
+      success: true,
+      fromCache: false,
+      data: roadmap,
+    });
+  } catch (error) {
+    console.log(error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
